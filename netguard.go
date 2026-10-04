@@ -50,9 +50,37 @@ func mustPrefixes(ss ...string) []netip.Prefix {
 	return out
 }
 
+// siitV6Prefix16 is the first 96 bits of an SIIT-translated IPv6 address
+// (RFC 6145): 64 zero bits, then ffff, then 16 zero bits. The low 32 bits
+// encode an IPv4 address — e.g. ::ffff:0:127.0.0.1 — but unlike the
+// IPv4-mapped spelling (::ffff:a.b.c.d) Go's Addr.Unmap does not translate
+// it, so it looks like a global-unicast IPv6 address and would slip through
+// the SSRF guard while actually reaching an IPv4 host.
+var siitV6Prefix16 = [12]byte{0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0}
+
+// siitEmbeddedV4 reclassifies an SIIT-translated IPv6 address as the IPv4
+// address embedded in its low 32 bits.
+func siitEmbeddedV4(a netip.Addr) (netip.Addr, bool) {
+	if !a.Is6() {
+		return netip.Addr{}, false
+	}
+	b := a.As16()
+	var first12 [12]byte
+	copy(first12[:], b[:12])
+	if first12 != siitV6Prefix16 {
+		return netip.Addr{}, false
+	}
+	return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
+}
+
 // Public reports whether a is a public unicast address a crawler may connect to.
 func Public(a netip.Addr) bool {
-	a = a.Unmap()
+	if v4, ok := siitEmbeddedV4(a.WithZone("")); ok {
+		// SIIT-translated IPv6 (RFC 6145): classify the embedded IPv4.
+		a = v4
+	} else {
+		a = a.Unmap()
+	}
 	if !a.IsValid() || !a.IsGlobalUnicast() || a.IsPrivate() {
 		return false
 	}
