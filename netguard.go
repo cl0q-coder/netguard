@@ -48,16 +48,6 @@ var reservedPrefixes = []string{
 	"3fff::/20",       // documentation (IANA: not globally reachable)
 	"5f00::/16",       // SRv6 SIDs (IANA: not globally reachable)
 	"192.88.99.2/32",  // 6to4 relay anycast (IANA: not globally reachable)
-	// N2 oracle additions (IANA special-use, not globally reachable):
-	"192.31.196.0/24",   // AS112-v4
-	"192.52.193.0/24",   // AMT
-	"192.88.99.0/24",    // 6to4 relay (whole block; supersedes the .2/32 anycast)
-	"192.175.48.0/24",   // direct delegation AS112
-	"2001:1::/48",       // Port Control Protocol anycast
-	"2001:3::/32",       // AMT
-	"2001:4:112::/48",   // AS112-v6
-	"2001:10::/28",      // ORCHID
-	"2620:4f:8000::/48", // direct delegation AS112
 }
 
 var (
