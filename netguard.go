@@ -40,6 +40,12 @@ var reserved = mustPrefixes(
 	"2001::/32",       // Teredo
 	"2001:db8::/32",   // documentation
 	"2002::/16",       // 6to4: embeds an IPv4 address
+	"100::/64",        // discard-only (IANA: not globally reachable)
+	"100:0:0:1::/64",  // dummy prefix, RFC 9780 (IANA: not globally reachable)
+	"2001:2::/48",     // benchmarking (IANA: not globally reachable)
+	"3fff::/20",       // documentation (IANA: not globally reachable)
+	"5f00::/16",       // SRv6 SIDs (IANA: not globally reachable)
+	"192.88.99.2/32",  // 6to4 relay anycast (IANA: not globally reachable)
 )
 
 func mustPrefixes(ss ...string) []netip.Prefix {
