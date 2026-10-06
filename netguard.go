@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -23,16 +24,17 @@ var ErrNotPublic = errors.New("refusing to connect to a non-public address")
 // allowNonPublic turns the check off. It exists only for tests, which run fake
 // servers on 127.0.0.1; no crawler sets it, and there is no flag or environment
 // variable for it. Unexported: external packages must use SetAllowNonPublicForTest.
-var allowNonPublic bool
+// Atomic for safe concurrent access from parallel tests.
+var allowNonPublic atomic.Bool
 
 // SetAllowNonPublicForTest toggles the non-public-address guard. TEST ONLY —
 // it exists so integration tests in other packages can run fake servers on
 // 127.0.0.1. Do not call in production code; the guard is a security boundary.
-func SetAllowNonPublicForTest(v bool) { allowNonPublic = v }
+func SetAllowNonPublicForTest(v bool) { allowNonPublic.Store(v) }
 
 // GetAllowNonPublicForTest reports the guard state. TEST ONLY — paired with
 // SetAllowNonPublicForTest so tests can save and restore.
-func GetAllowNonPublicForTest() bool { return allowNonPublic }
+func GetAllowNonPublicForTest() bool { return allowNonPublic.Load() }
 
 // reservedPrefixes lists ranges that IsGlobalUnicast and IsPrivate don't already
 // exclude. It is the single source of truth: init derives the per-family prefix
@@ -178,7 +180,7 @@ func PublicIP(s string) bool {
 // resolved "ip:port" of each connection attempt. The address is parsed with netip.ParseAddrPort — one allocation-free
 // parse — rather than SplitHostPort followed by ParseAddr.
 func Control(network, address string, _ syscall.RawConn) error {
-	if allowNonPublic {
+	if allowNonPublic.Load() {
 		return nil
 	}
 	ap, err := netip.ParseAddrPort(address)
