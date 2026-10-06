@@ -113,3 +113,53 @@ func TestFirstUnitRangeZeroBits(t *testing.T) {
 		t.Errorf("firstUnitRange(0,16,0) = (%d,%d), want (0,65535)", lo, hi)
 	}
 }
+
+func TestPublicZonedAddress(t *testing.T) {
+	// Zoned addresses must be stripped before the reserved-prefix scan.
+	// A zoned SIIT address embedding a private IPv4 must NOT be public.
+	zonedPrivate := netip.MustParseAddr("64:ff9b::a9fe:a9fe%eth0")
+	if Public(zonedPrivate) {
+		t.Errorf("zoned SIIT with private embedded IPv4 should not be public")
+	}
+	// Zoned public address should still be public after zone strip.
+	zonedPublic := netip.MustParseAddr("2606:4700:4700::1111%eth0")
+	if !Public(zonedPublic) {
+		t.Errorf("zoned public IPv6 should be public")
+	}
+}
+
+func TestPublicIPv4Compatible(t *testing.T) {
+	// ::/96 (IPv4-compatible): ::192.168.1.1 embeds private IPv4
+	compatPrivate := netip.MustParseAddr("::192.168.1.1")
+	if Public(compatPrivate) {
+		t.Errorf("::/96 with 192.168.1.1 should not be public")
+	}
+	// ::/96 with public IPv4
+	compatPublic := netip.MustParseAddr("::8.8.8.8")
+	if !Public(compatPublic) {
+		t.Errorf("::/96 with 8.8.8.8 should be public")
+	}
+}
+
+func TestSetAllowNonPublicForTestRoundTrip(t *testing.T) {
+	// Setter round-trip: enable, verify effect on Control, disable, verify restored.
+	// Note: allowNonPublic only affects Control (the dial hook), not Public.
+	orig := GetAllowNonPublicForTest()
+	SetAllowNonPublicForTest(true)
+	if !GetAllowNonPublicForTest() {
+		t.Errorf("SetAllowNonPublicForTest(true) did not set")
+	}
+	// With the flag on, Control should allow loopback
+	if err := Control("tcp", "127.0.0.1:80", nil); err != nil {
+		t.Errorf("Control should allow loopback when AllowNonPublic is set: %v", err)
+	}
+	SetAllowNonPublicForTest(false)
+	if GetAllowNonPublicForTest() {
+		t.Errorf("SetAllowNonPublicForTest(false) did not clear")
+	}
+	if err := Control("tcp", "127.0.0.1:80", nil); err == nil {
+		t.Errorf("Control should refuse loopback when AllowNonPublic is cleared")
+	}
+	// Restore original
+	SetAllowNonPublicForTest(orig)
+}
