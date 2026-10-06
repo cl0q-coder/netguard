@@ -134,6 +134,11 @@ func firstUnitRange(bits, width int, base uint16) (uint16, uint16) {
 	if bits >= width {
 		return base, base
 	}
+	if bits == 0 {
+		// /0 covers the entire unit range; avoid uint16 wraparound
+		// (1 << 16 would overflow to 0).
+		return 0, 1<<width - 1
+	}
 	span := uint16(1) << (width - bits)
 	return base, base + span - 1
 }
@@ -169,6 +174,23 @@ func siitEmbeddedV4(a netip.Addr) (netip.Addr, bool) {
 	return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
 }
 
+// isatapEmbeddedV4 reclassifies an ISATAP IPv6 address (RFC 4214) as the IPv4
+// address embedded in its IID. ISATAP IIDs have the form 0:5EFE:wxyz where
+// wxyz is the 32-bit IPv4 address — e.g. the IID ::0:5EFE:127.0.0.1 embeds
+// 127.0.0.1. Without this, an ISATAP address to a private IPv4 host looks
+// like a global-unicast IPv6 address and would slip through the SSRF guard.
+func isatapEmbeddedV4(a netip.Addr) (netip.Addr, bool) {
+	if !a.Is6() {
+		return netip.Addr{}, false
+	}
+	b := a.As16()
+	// IID is bytes 8-15; ISATAP marker is 00:00:5E:FE at bytes 8-11
+	if b[8] != 0 || b[9] != 0 || b[10] != 0x5E || b[11] != 0xFE {
+		return netip.Addr{}, false
+	}
+	return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
+}
+
 // Public reports whether a is a public unicast address a crawler may connect to.
 //
 // The common case — an ordinary public address — short-circuits after a single
@@ -185,6 +207,9 @@ func Public(a netip.Addr) bool {
 	if v4, ok := siitEmbeddedV4(a); ok {
 		// SIIT-translated (RFC 6145) or IPv4-compatible (RFC 2765, ::/96)
 		// IPv6: classify the embedded IPv4.
+		a = v4
+	} else if v4, ok := isatapEmbeddedV4(a); ok {
+		// ISATAP (RFC 4214): classify the embedded IPv4.
 		a = v4
 	} else {
 		a = a.Unmap()

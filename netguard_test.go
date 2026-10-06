@@ -87,3 +87,29 @@ func TestPublicSIITTranslated(t *testing.T) {
 		t.Error("::ffff:0:1.1.1.1 (SIIT-translated public IPv4) must be allowed")
 	}
 }
+
+func TestISATAPEmbeddedV4(t *testing.T) {
+	// ISATAP with private embedded IPv4 must NOT be public
+	// ::0:5EFE:192.168.1.1
+	isatapPrivate := netip.MustParseAddr("::0:5EFE:192.168.1.1")
+	if Public(isatapPrivate) {
+		t.Errorf("ISATAP with 192.168.1.1 should not be public")
+	}
+	// ISATAP with public embedded IPv4 SHOULD be public
+	// ::0:5EFE:8.8.8.8
+	isatapPublic := netip.MustParseAddr("::0:5EFE:8.8.8.8")
+	if !Public(isatapPublic) {
+		t.Errorf("ISATAP with 8.8.8.8 should be public")
+	}
+}
+
+func TestFirstUnitRangeZeroBits(t *testing.T) {
+	lo, hi := firstUnitRange(0, 8, 0)
+	if lo != 0 || hi != 255 {
+		t.Errorf("firstUnitRange(0,8,0) = (%d,%d), want (0,255)", lo, hi)
+	}
+	lo, hi = firstUnitRange(0, 16, 0)
+	if lo != 0 || hi != 65535 {
+		t.Errorf("firstUnitRange(0,16,0) = (%d,%d), want (0,65535)", lo, hi)
+	}
+}
