@@ -138,7 +138,11 @@ func siitEmbeddedV4(a netip.Addr) (netip.Addr, bool) {
 // reservedPrefixes at init, so the fast path and the list cannot disagree;
 // every "maybe" address still gets the full scan, so verdicts are unchanged.
 func Public(a netip.Addr) bool {
-	if v4, ok := siitEmbeddedV4(a.WithZone("")); ok {
+	// Strip any zone ID first: netip.Prefix.Contains returns false for
+	// zoned addresses, which would bypass the entire reserved-prefix scan.
+	// (P0: CVE-class SSRF bypass via e.g. 64:ff9b::a9fe:a9fe%eth0)
+	a = a.WithZone("")
+	if v4, ok := siitEmbeddedV4(a); ok {
 		// SIIT-translated IPv6 (RFC 6145): classify the embedded IPv4.
 		a = v4
 	} else {
