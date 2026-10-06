@@ -146,8 +146,16 @@ func firstUnitRange(bits, width int, base uint16) (uint16, uint16) {
 // the SSRF guard while actually reaching an IPv4 host.
 var siitV6Prefix16 = [12]byte{0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0}
 
-// siitEmbeddedV4 reclassifies an SIIT-translated IPv6 address as the IPv4
-// address embedded in its low 32 bits.
+// v4CompatPrefix96 is the IPv4-compatible prefix ::/96 (RFC 2765): 96 zero
+// bits with an IPv4 address in the low 32 bits — e.g. ::127.0.0.1. Like the
+// SIIT spelling, Go's Addr.Unmap does not translate it, so it would look
+// like a global-unicast IPv6 address and slip through the SSRF guard while
+// actually reaching an IPv4 host on an RFC 2765 translator.
+var v4CompatPrefix96 = [12]byte{}
+
+// siitEmbeddedV4 reclassifies an SIIT-translated IPv6 address (RFC 6145) or an
+// IPv4-compatible IPv6 address (RFC 2765, ::/96) as the IPv4 address embedded
+// in its low 32 bits.
 func siitEmbeddedV4(a netip.Addr) (netip.Addr, bool) {
 	if !a.Is6() {
 		return netip.Addr{}, false
@@ -155,7 +163,7 @@ func siitEmbeddedV4(a netip.Addr) (netip.Addr, bool) {
 	b := a.As16()
 	var first12 [12]byte
 	copy(first12[:], b[:12])
-	if first12 != siitV6Prefix16 {
+	if first12 != siitV6Prefix16 && first12 != v4CompatPrefix96 {
 		return netip.Addr{}, false
 	}
 	return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
@@ -175,7 +183,8 @@ func Public(a netip.Addr) bool {
 	// (P0: CVE-class SSRF bypass via e.g. 64:ff9b::a9fe:a9fe%eth0)
 	a = a.WithZone("")
 	if v4, ok := siitEmbeddedV4(a); ok {
-		// SIIT-translated IPv6 (RFC 6145): classify the embedded IPv4.
+		// SIIT-translated (RFC 6145) or IPv4-compatible (RFC 2765, ::/96)
+		// IPv6: classify the embedded IPv4.
 		a = v4
 	} else {
 		a = a.Unmap()
