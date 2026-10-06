@@ -38,6 +38,25 @@ One file (`netguard.go`), stdlib only:
   127.0.0.1. There is no flag or environment variable for it; it can only be
   flipped in-process by test code.
 
+## Integration contract
+
+**Call `Public`/`PublicIP` only on the post-resolution dial address.**
+The `Control` hook receives the already-resolved IP:port the dialer is about
+to connect to. That is the only safe input.
+
+**Never gate on the hostname.** DNS is time-of-check/time-of-use: a hostname
+that resolves to a public IP at check time can resolve to 127.0.0.1 at dial
+time (DNS rebinding). `Public` on a hostname-derived string is meaningless —
+always resolve first, then check the resulting `netip.Addr`.
+
+**Install `Control` on every transport.** The hook runs per-dial, so redirects
+are covered automatically: each hop re-resolves and re-checks.
+
+```go
+dialer := &net.Dialer{Control: netguard.Control}
+transport := &http.Transport{DialContext: dialer.DialContext}
+```
+
 ## Usage
 
 ```go
