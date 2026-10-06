@@ -37,9 +37,9 @@ func SetAllowNonPublicForTest(v bool) { allowNonPublic.Store(v) }
 func GetAllowNonPublicForTest() bool { return allowNonPublic.Load() }
 
 // reservedPrefixes lists ranges that IsGlobalUnicast and IsPrivate don't already
-// exclude. It is the single source of truth: init derives the per-family prefix
-// lists and the first-octet / first-hextet lookup tables from it, so the fast
-// path in Public can never drift out of sync with the list.
+// exclude. It is the single source of truth: init derives the per-family
+// (network, mask) pairs and the first-octet / first-hextet lookup tables from
+// it, so the fast path in Public can never drift out of sync with the list.
 var reservedPrefixes = []string{
 	"0.0.0.0/8",       // "this network"
 	"100.64.0.0/10",   // carrier-grade NAT (also used by VPN overlay networks)
@@ -63,8 +63,18 @@ var reservedPrefixes = []string{
 }
 
 var (
-	reserved4 []netip.Prefix
-	reserved6 []netip.Prefix
+	// v4Net/v4Mask and v6NetHi/v6NetLo/v6MaskHi/v6MaskLo are the reserved
+	// prefixes as precomputed (network, mask) pairs: an address is inside
+	// the prefix iff (addr & mask) == net. This is exactly what
+	// netip.Prefix.Contains computes, but without its per-call masking
+	// overhead; the scan only runs for "maybe" addresses whose first
+	// octet/hextet is marked in the tables below.
+	v4Net    []uint32
+	v4Mask   []uint32
+	v6NetHi  []uint64
+	v6NetLo  []uint64
+	v6MaskHi []uint64
+	v6MaskLo []uint64
 	// firstOctetReserved marks IPv4 first octets covered by at least one
 	// reserved prefix; firstHextetReserved marks IPv6 first hextets. An address
 	// whose first octet/hextet is unmarked cannot be inside any reserved range,
@@ -77,13 +87,20 @@ func init() {
 	for _, s := range reservedPrefixes {
 		p := netip.MustParsePrefix(s)
 		if p.Addr().Is4() {
-			reserved4 = append(reserved4, p)
+			mb := p.Masked().Addr().As4()
+			v4Net = append(v4Net, uint32(mb[0])<<24|uint32(mb[1])<<16|uint32(mb[2])<<8|uint32(mb[3]))
+			v4Mask = append(v4Mask, ^uint32(0)<<(32-p.Bits()))
 			lo, hi := firstUnitRange(p.Bits(), 8, uint16(p.Masked().Addr().As4()[0]))
 			for o := int(lo); o <= int(hi); o++ {
 				firstOctetReserved[o] = true
 			}
 		} else {
-			reserved6 = append(reserved6, p)
+			mb := p.Masked().Addr().As16()
+			mhi, mlo := v6Mask(p.Bits())
+			v6NetHi = append(v6NetHi, be64(mb[:8]))
+			v6NetLo = append(v6NetLo, be64(mb[8:]))
+			v6MaskHi = append(v6MaskHi, mhi)
+			v6MaskLo = append(v6MaskLo, mlo)
 			b := p.Masked().Addr().As16()
 			base := uint16(b[0])<<8 | uint16(b[1])
 			lo, hi := firstUnitRange(p.Bits(), 16, base)
@@ -92,6 +109,21 @@ func init() {
 			}
 		}
 	}
+}
+
+// v6Mask returns the (high, low) 64-bit halves of a 128-bit mask with the top
+// bits set.
+func v6Mask(bits int) (uint64, uint64) {
+	if bits >= 64 {
+		return ^uint64(0), ^uint64(0) << (128 - bits)
+	}
+	return ^uint64(0) << (64 - bits), 0
+}
+
+// be64 reads 8 big-endian bytes as a uint64.
+func be64(b []byte) uint64 {
+	return uint64(b[0])<<56 | uint64(b[1])<<48 | uint64(b[2])<<40 | uint64(b[3])<<32 |
+		uint64(b[4])<<24 | uint64(b[5])<<16 | uint64(b[6])<<8 | uint64(b[7])
 }
 
 // firstUnitRange returns the range of first-octet (width 8) or first-hextet
@@ -155,8 +187,10 @@ func Public(a netip.Addr) bool {
 		if !firstOctetReserved[a.As4()[0]] {
 			return true
 		}
-		for _, p := range reserved4 {
-			if p.Contains(a) {
+		b := a.As4()
+		ip := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+		for i := range v4Net {
+			if ip&v4Mask[i] == v4Net[i] {
 				return false
 			}
 		}
@@ -166,8 +200,10 @@ func Public(a netip.Addr) bool {
 	if !firstHextetReserved[uint16(b[0])<<8|uint16(b[1])] {
 		return true
 	}
-	for _, p := range reserved6 {
-		if p.Contains(a) {
+	hi := be64(b[:8])
+	lo := be64(b[8:])
+	for i := range v6NetHi {
+		if hi&v6MaskHi[i] == v6NetHi[i] && lo&v6MaskLo[i] == v6NetLo[i] {
 			return false
 		}
 	}
