@@ -27,6 +27,18 @@ jobs:
           cache: true
           cache-dependency-path: go.mod # no go.sum in this repo; key cache on go.mod
       - run: go test -race -count=1 ./...
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.mod # no go.sum in this repo; key cache on go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
+
   timing:
     name: ci wall-time
     runs-on: ubuntu-latest
