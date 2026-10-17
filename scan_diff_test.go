@@ -6,11 +6,18 @@ import (
 	"testing"
 )
 
-// referencePublic recomputes the verdict the slow way: parse the reserved
-// list fresh and use netip.Prefix.Contains, mirroring the pre-optimization
-// scan. The (network, mask) pairs must agree with it on every address.
+// referencePublic recomputes the verdict the slow way: apply Public's full
+// normalization (strip zone, SIIT/IPv4-compatible/ISATAP embedded-IPv4
+// reclassification, Unmap), then stdlib predicates and a linear
+// netip.Prefix.Contains scan of the reserved list. The (network, mask)
+// pairs and lookup tables must agree with it on every address.
 func referencePublic(a netip.Addr) bool {
-	if v4, ok := siitEmbeddedV4(a.WithZone("")); ok {
+	// Zone strip first: Prefix.Contains returns false for zoned addresses,
+	// so the scan must see the same zone-free address Public checks.
+	a = a.WithZone("")
+	if v4, ok := siitEmbeddedV4(a); ok {
+		a = v4
+	} else if v4, ok := isatapEmbeddedV4(a); ok {
 		a = v4
 	} else {
 		a = a.Unmap()
